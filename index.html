@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Steel Project Delivery Tracker</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f4f5f7;--card:#fff;--ink:#14213d;--mute:#5b6577;--acc:#e07a1f;--ok:#1f9d55;--warn:#d64545;--line:#d9dde4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151f;--card:#1a2233;--ink:#eef1f6;--mute:#9aa5b8;--line:#2c374d}}
+:root[data-theme="dark"]{--bg:#10151f;--card:#1a2233;--ink:#eef1f6;--mute:#9aa5b8;--line:#2c374d}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+.wrap{max-width:960px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+h1{font-size:24px;margin:0}h2{font-size:17px;margin:0 0 8px}
+.badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--mute)}
+.grid{display:grid;grid-template-columns:260px 1fr;gap:14px;margin-top:14px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.item{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
+.item.on{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.item small{color:var(--mute);display:block}
+.mute{color:var(--mute);font-size:14px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+button.w{border-color:var(--warn);color:var(--warn)}
+input,select,textarea{font:inherit;width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin:4px 0 10px}
+label{font-size:13px;color:var(--mute);font-weight:600}
+.steps{margin:8px 0}
+.st{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.st:last-child{border:0}
+.dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;flex:none}
+.st.done .dot{background:var(--ok);border-color:var(--ok);color:#fff}
+.st.cur .dot{background:var(--acc);border-color:var(--acc);color:#fff}
+.st.cur{font-weight:700}
+.row{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:15px}
+.alert{border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:10px 14px;margin:10px 0}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.log div{padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.log div:last-child{border:0}
+pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit;font-size:14px;margin:6px 0}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--card);padding:8px 16px;border-radius:8px;display:none;z-index:9}
+</style></head><body><div class="wrap">
+<header><h1>🏗️ Steel Project Delivery Tracker</h1><button class="badge" id="role" style="cursor:pointer">Loading…</button></header>
+<p class="mute" id="sub">Demo with sample data. Use the switch above to see the admin and customer views. Changes are saved in this browser only.</p>
+<div id="app"><div class="card">Connecting…</div></div>
+<div id="toast"></div>
+</div>
+<script>
+var STAGES=["Design","Manufacturing","Quality Check","Ready for Dispatch","In Transit","Site Delivery","Erection"];
+var db=null,admin=false,projects=[],sel=null,msg=null,adding=false;
+var only=(location.hash||"").replace("#","");
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function fd(s){if(!s)return"TBC";var d=new Date(s+"T00:00:00");return isNaN(d)?s:d.toLocaleDateString(undefined,{day:"numeric",month:"long"})}
+function toast(t){var e=$("toast");e.textContent=t;e.style.display="block";setTimeout(function(){e.style.display="none"},2600)}
+function cur(){return projects.find(function(p){return p.id===sel})}
+var store={},KEY="steel_demo_v1";
+function save(){try{localStorage.setItem(KEY,JSON.stringify(store))}catch(e){}}
+function sync(){projects=Object.keys(store).map(function(k){return Object.assign({id:k},store[k])});projects.sort(function(a,b){return a.id<b.id?1:-1});setTimeout(function(){if(!adding)render()},0)}
+function ref(id){return{
+set:function(d){store[id]=d;save();sync();return Promise.resolve()},
+update:function(d){store[id]=Object.assign({},store[id],d);save();sync();return Promise.resolve()},
+delete:function(){delete store[id];save();sync();return Promise.resolve()}}}
+function iso(n){var d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
+function seed(){
+  var t=function(h,x){return{t:new Date(Date.now()-h*36e5).toISOString(),text:x}};
+  store={
+    p1:{name:"ABC Warehouse",customer:"Rahul Menon",email:"rahul@example.com",stage:4,eta:iso(3),delay:{revised:iso(5),reason:"Unforeseen transportation issue"},log:[t(120,"Project created. Status: Design"),t(90,"Status changed to Manufacturing"),t(60,"Status changed to Quality Check"),t(30,"Status changed to Ready for Dispatch"),t(20,"Status changed to In Transit"),t(2,"Delay: revised ETA "+fd(iso(5))+" - Unforeseen transportation issue")]},
+    p2:{name:"Greenfield Logistics Hub",customer:"Anita Joseph",email:"anita@example.com",stage:1,eta:iso(21),delay:null,log:[t(72,"Project created. Status: Design"),t(10,"Status changed to Manufacturing")]},
+    p3:{name:"Sunrise Cold Storage",customer:"Faisal Khan",email:"faisal@example.com",stage:3,eta:iso(8),delay:null,log:[t(96,"Project created. Status: Design"),t(48,"Status changed to Manufacturing"),t(24,"Status changed to Quality Check"),t(4,"Status changed to Ready for Dispatch")]}
+  };save();
+}
+function stamp(t){return{t:new Date().toISOString(),text:t}}
+function fail(e){toast("Could not save: "+(e&&e.message||"try again"))}
+
+function draft(p,kind){
+  var link=location.href.split("#")[0]+"#"+p.id,s,b;
+  if(kind==="delay"){
+    s="Delivery Update: "+p.name;
+    b="Hello "+p.customer+",\n\nYour steel-component delivery for "+p.name+" has been delayed"+(p.delay.reason?" ("+p.delay.reason+")":"")+".\n\nOriginal ETA: "+fd(p.eta)+"\nRevised ETA: "+fd(p.delay.revised)+"\n\nWe apologize for the inconvenience and will keep you updated.\nTrack delivery: "+link;
+  }else{
+    var st=STAGES[p.stage];
+    s=p.stage===4?"Your Steel Components Are on the Way":"Project Update: "+p.name+" - "+st;
+    b="Hello "+p.customer+",\n\nProject: "+p.name+"\nOrder status: "+st+"\nExpected delivery: "+fd(p.delay?p.delay.revised:p.eta)+"\n\nTrack project delivery: "+link;
+  }
+  msg={subject:s,body:b,to:p.email||""};
+}
+
+function newProject(){
+  var n=$("n_name").value.trim(),c=$("n_cust").value.trim();
+  if(!n||!c){toast("Project and customer name are required");return}
+  var id="p"+Date.now().toString(36),eta=$("n_eta").value;
+  var p={name:n,customer:c,email:$("n_mail").value.trim(),stage:0,eta:eta,delay:null,log:[stamp("Project created. Status: "+STAGES[0])]};
+  ref(id).set(p).then(function(){adding=false;sel=id;toast("Project created")}).catch(fail);
+}
+function setStage(){
+  var p=cur(),v=+$("a_stage").value;if(!p||v===p.stage)return;
+  var q=Object.assign({},p,{stage:v,log:p.log.concat([stamp("Status changed to "+STAGES[v])])});
+  ref(p.id).update({stage:v,log:q.log}).then(function(){draft(q,"stage");render()}).catch(fail);
+}
+function setEta(){
+  var p=cur(),v=$("a_eta").value;if(!p||!v)return;
+  var q=Object.assign({},p,{eta:v,log:p.log.concat([stamp("Expected delivery set to "+fd(v))])});
+  ref(p.id).update({eta:v,log:q.log}).then(function(){draft(q,"stage");render()}).catch(fail);
+}
+function setDelay(){
+  var p=cur(),v=$("d_eta").value,r=$("d_why").value.trim();if(!p)return;
+  if(!v){toast("Pick a revised ETA");return}
+  var d={revised:v,reason:r},q=Object.assign({},p,{delay:d,log:p.log.concat([stamp("Delay: revised ETA "+fd(v)+(r?" - "+r:""))])});
+  ref(p.id).update({delay:d,log:q.log}).then(function(){draft(q,"delay");render()}).catch(fail);
+}
+function clearDelay(){
+  var p=cur();if(!p)return;
+  var q=Object.assign({},p,{delay:null,eta:p.delay?p.delay.revised:p.eta,log:p.log.concat([stamp("Delay cleared; ETA now "+fd(p.delay?p.delay.revised:p.eta))])});
+  ref(p.id).update({delay:null,eta:q.eta,log:q.log}).then(function(){draft(q,"stage");render()}).catch(fail);
+}
+function delProject(){
+  var p=cur();if(!p||!confirm("Delete project "+p.name+"?"))return;
+  ref(p.id).delete().then(function(){sel=null;msg=null}).catch(fail);
+}
+function copyText(t,ok){
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){toast(ok)},function(){toast("Copy not allowed here")})}else toast("Copy not available")
+}
+
+function render(){
+  var list=only?projects.filter(function(p){return p.id===only}):projects;
+  if(!sel||!list.some(function(p){return p.id===sel}))sel=list.length?list[0].id:null;
+  var h='<div class="grid"><div>';
+  if(!only){
+    h+=list.map(function(p){return'<div class="item'+(p.id===sel?" on":"")+'" data-id="'+esc(p.id)+'"><b>'+esc(p.name)+'</b><small>'+esc(p.customer)+' · '+esc(STAGES[p.stage])+(p.delay?' · ⚠️ delayed':'')+'</small></div>'}).join("");
+    if(!list.length)h+='<p class="mute">No projects yet.'+(admin?"":" Check back soon.")+'</p>';
+    if(admin)h+='<div class="actions"><button class="p" id="add">+ New project</button><button id="reset">Reset demo</button></div>';
+  }
+  h+='</div><div>';
+  if(adding&&admin){
+    h+='<div class="card"><h2>New project</h2><label>Project name</label><input id="n_name" placeholder="ABC Warehouse"><label>Customer name</label><input id="n_cust"><label>Customer email (optional, for notification drafts)</label><input id="n_mail" type="email"><label>Expected delivery</label><input id="n_eta" type="date"><div class="actions"><button class="p" id="create">Create</button><button id="cancel">Cancel</button></div></div>';
+  }
+  var p=cur();
+  if(p&&!adding){
+    h+='<div class="card"><h2>'+esc(p.name)+'</h2><div class="row"><span>Customer</span><b>'+esc(p.customer)+'</b></div><div class="row"><span>Order status</span><b>'+esc(STAGES[p.stage])+(p.stage===4?" 🚚":"")+'</b></div><div class="row"><span>Expected delivery</span><b'+(p.delay?' style="text-decoration:line-through;color:var(--mute)"':'')+'>'+fd(p.eta)+'</b></div>';
+    if(p.delay)h+='<div class="alert"><b>⚠️ Delivery update:</b> revised ETA <b>'+fd(p.delay.revised)+'</b>'+(p.delay.reason?'<br>'+esc(p.delay.reason):'')+'<br>We apologize for the inconvenience and will keep you updated.</div>';
+    h+='<div class="steps">'+STAGES.map(function(s,i){return'<div class="st '+(i<p.stage?"done":i===p.stage?"cur":"")+'"><span class="dot">'+(i<p.stage?"✓":i===p.stage?"●":"")+'</span>'+esc(s)+'</div>'}).join("")+'</div></div>';
+    h+='<div class="card log"><h2>Updates</h2>'+p.log.slice().reverse().map(function(l){return'<div><span class="mute">'+new Date(l.t).toLocaleString()+'</span><br>'+esc(l.text)+'</div>'}).join("")+'</div>';
+    if(admin){
+      h+='<div class="card"><h2>Update delivery (admin)</h2><label>Status</label><select id="a_stage">'+STAGES.map(function(s,i){return'<option value="'+i+'"'+(i===p.stage?" selected":"")+'>'+esc(s)+'</option>'}).join("")+'</select><div class="actions"><button class="p" id="go_stage">Update status</button></div>';
+      h+='<label style="display:block;margin-top:14px">Expected delivery date</label><input id="a_eta" type="date" value="'+esc(p.eta||"")+'"><div class="actions"><button id="go_eta">Save date</button></div>';
+      h+='<h2 style="margin-top:16px">Report a delay</h2><label>Revised ETA</label><input id="d_eta" type="date" value="'+esc(p.delay?p.delay.revised:"")+'"><label>Reason (shown to customer)</label><input id="d_why" placeholder="Unforeseen transportation issue" value="'+esc(p.delay?p.delay.reason:"")+'"><div class="actions"><button class="w" id="go_delay">Mark delayed</button>'+(p.delay?'<button id="go_clear">Clear delay</button>':'')+'</div>';
+      h+='<div class="actions" style="margin-top:14px"><button id="copy_link">Copy customer link</button><button class="w" id="del">Delete project</button></div></div>';
+      if(msg)h+='<div class="card"><h2>Customer notification (ready to send)</h2><p class="mute">Review and send from your own email or messaging app.</p><b>'+esc(msg.subject)+'</b><pre>'+esc(msg.body)+'</pre><div class="actions"><button id="copy_msg">Copy message</button><a href="mailto:'+encodeURIComponent(msg.to)+'?subject='+encodeURIComponent(msg.subject)+'&body='+encodeURIComponent(msg.body)+'"><button class="p">Open in email</button></a></div></div>';
+    }
+  }
+  h+='</div></div>';
+  $("app").innerHTML=h;
+  document.querySelectorAll(".item").forEach(function(e){e.onclick=function(){sel=e.dataset.id;adding=false;msg=null;render()}});
+  var m={add:function(){adding=true;render()},cancel:function(){adding=false;render()},create:newProject,go_stage:setStage,go_eta:setEta,go_delay:setDelay,go_clear:clearDelay,del:delProject,reset:resetDemo,
+    copy_link:function(){copyText(location.href.split("#")[0]+"#"+sel,"Customer link copied")},copy_msg:function(){copyText(msg.subject+"\n\n"+msg.body,"Message copied")}};
+  Object.keys(m).forEach(function(k){var e=$(k);if(e)e.onclick=m[k]});
+}
+
+function init(){
+  try{var r=localStorage.getItem(KEY);if(r)store=JSON.parse(r)}catch(e){}
+  if(!Object.keys(store).length)seed();
+  try{admin=localStorage.getItem("steel_demo_admin")!=="0"}catch(e){admin=true}
+  if(only)admin=false;
+  head();sync();render();
+}
+function head(){
+  var b=$("role");
+  if(only){b.textContent="Customer view";b.onclick=null;return}
+  b.textContent=admin?"Viewing as: Admin (switch)":"Viewing as: Customer (switch)";
+  b.onclick=function(){admin=!admin;msg=null;try{localStorage.setItem("steel_demo_admin",admin?"1":"0")}catch(e){}head();render()};
+}
+function resetDemo(){if(confirm("Reset all demo data?")){seed();msg=null;sel=null;sync();toast("Demo reset")}}
+window.addEventListener("hashchange",function(){location.reload()});
+init();
+</script></body></html>
